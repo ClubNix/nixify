@@ -1,0 +1,19 @@
+[Unit]
+Description=Nixify Flask Jukebox
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/nixify
+Environment=PYTHONUTF8=1
+Environment=APP_BUILD=systemd
+Environment=NIXIFY_ENTRYPOINT=/root/nixify/Nixify.py
+Environment=NIXIFY_STRICT_ENTRYPOINT=1
+ExecStart=/usr/bin/python3 /root/nixify/Nixify.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

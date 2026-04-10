@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion - {{ app_name }}</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background:
+                radial-gradient(circle at top left, rgba(0,243,255,0.18), transparent 25%),
+                linear-gradient(145deg, #05070d, #0a0a12 60%, #07101b);
+            color: #edf4fb;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        }
+        .box {
+            width: min(420px, calc(100vw - 32px));
+            padding: 34px;
+            border-radius: 28px;
+            background: rgba(9, 17, 29, 0.96);
+            border: 1px solid rgba(0,243,255,0.24);
+            box-shadow: 0 0 10px rgba(0,243,255,0.28), 0 24px 60px rgba(0,0,0,0.4);
+        }
+        h1 { margin: 0 0 8px; color: #00f3ff; font-size: 2.1rem; text-shadow: 0 0 10px #00f3ff; }
+        p { margin: 0 0 22px; color: #9db0c3; }
+        form { display: grid; gap: 12px; }
+        input, button {
+            width: 100%;
+            border-radius: 16px;
+            padding: 14px 16px;
+            border: 0;
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+        input {
+            background: rgba(0,243,255,0.05);
+            color: white;
+            border: 1px solid rgba(0,243,255,0.18);
+            box-shadow: 0 0 10px rgba(0,243,255,0.08);
+        }
+        button {
+            background: #00f3ff;
+            color: #03151b;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 0 10px #00f3ff;
+        }
+        .alert {
+            margin-bottom: 16px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(255,107,107,0.14);
+            color: #ffc3c3;
+        }
+        a { color: #00f3ff; text-decoration: none; display: inline-block; margin-top: 18px; }
+        .footer-note {
+            margin-top: 18px;
+            color: #9db0c3;
+            font-size: 0.82rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>{{ app_name }}</h1>
+        <p>Telecommande web des enceintes du club.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST">
+            <input type="text" name="username" placeholder="Nom d'utilisateur" required>
+            <input type="password" name="password" placeholder="Mot de passe" required>
+            <button type="submit">Se connecter</button>
+        </form>
+
+        <a href="{{ url_for('register') }}">Creer un compte</a>
+        <div class="footer-note">{{ footer_credit }}</div>
+    </div>
+</body>
+</html>

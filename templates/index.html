@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }} - Les enceintes</title>
+    <style>
+        :root {
+            --bg: #0a0a12;
+            --panel: rgba(11, 18, 31, 0.92);
+            --panel-soft: rgba(12, 23, 39, 0.88);
+            --line: rgba(0,243,255,0.24);
+            --text: #f2fbff;
+            --muted: #8da8b9;
+            --accent: #00f3ff;
+            --accent-2: #4d8dff;
+            --danger: #ff5c8a;
+            --success: #7df7cf;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(0,243,255,0.18), transparent 28%),
+                radial-gradient(circle at top right, rgba(77,141,255,0.18), transparent 24%),
+                linear-gradient(160deg, #05070d 0%, #0a0a12 45%, #070b14 100%);
+        }
+        .page-footer {
+            padding: 0 18px 18px;
+            color: var(--muted);
+            text-align: center;
+            font-size: 0.85rem;
+        }
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            display: none;
+            place-items: center;
+            padding: 18px;
+            background: rgba(3, 7, 12, 0.72);
+            z-index: 20;
+        }
+        .modal-backdrop.open {
+            display: grid;
+        }
+        .modal-card {
+            width: min(560px, 100%);
+            padding: 24px;
+            border-radius: 22px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            box-shadow: 0 18px 50px rgba(0,0,0,0.42);
+            display: grid;
+            gap: 14px;
+        }
+        .modal-card h3 {
+            margin: 0;
+            color: var(--accent);
+        }
+        .shell {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 18px;
+            padding: 18px;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            box-shadow: 0 0 10px rgba(0,243,255,0.25), 0 20px 60px rgba(0,0,0,0.38);
+            backdrop-filter: blur(14px);
+        }
+        .sidebar {
+            padding: 20px;
+            position: sticky;
+            top: 18px;
+            height: calc(100vh - 36px);
+            overflow: auto;
+        }
+        .content {
+            padding: 20px;
+            display: grid;
+            gap: 18px;
+            min-height: calc(100vh - 36px);
+        }
+        .brand {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 20px;
+        }
+        .brand h1 {
+            margin: 0;
+            font-size: 2rem;
+            letter-spacing: 0.04em;
+            color: var(--accent);
+            text-shadow: 0 0 10px rgba(0,243,255,0.35);
+        }
+        .role {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--accent-2);
+        }
+        .stack, .tab-panel {
+            display: grid;
+            gap: 16px;
+        }
+        .card {
+            padding: 18px;
+            background: var(--panel-soft);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            box-shadow: inset 0 0 0 1px rgba(0,243,255,0.05), 0 0 12px rgba(0,243,255,0.08);
+        }
+        .card h2, .card h3 {
+            margin: 0 0 10px 0;
+            font-size: 1rem;
+        }
+        .sub {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+            margin: 0;
+        }
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+        .status-pill, .tiny-pill, .user-pill, .loop-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(0,243,255,0.16);
+            background: rgba(0,243,255,0.08);
+            color: var(--text);
+            box-shadow: 0 0 10px rgba(0,243,255,0.14);
+            font-size: 0.8rem;
+        }
+        .tiny-pill {
+            padding: 6px 10px;
+            font-size: 0.75rem;
+        }
+        .loop-pill {
+            border-color: rgba(125,247,207,0.22);
+            background: rgba(125,247,207,0.08);
+            color: var(--success);
+        }
+        .current-track {
+            display: grid;
+            grid-template-columns: 72px 1fr;
+            gap: 14px;
+            align-items: center;
+            margin-top: 14px;
+        }
+        .current-track img, .track-cover, .playlist-thumb {
+            width: 72px;
+            height: 72px;
+            border-radius: 16px;
+            object-fit: cover;
+            background: rgba(255,255,255,0.08);
+        }
+        .volume-card {
+            display: grid;
+            gap: 12px;
+            margin-top: 14px;
+        }
+        .volume-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .volume-row input[type="range"] {
+            flex: 1;
+            min-width: 0;
+            accent-color: var(--accent);
+        }
+        .volume-value {
+            min-width: 52px;
+            text-align: right;
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .queue-list, .queue-visual, .playlist-tracks {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            display: grid;
+            gap: 10px;
+        }
+        .queue-list li, .queue-item, .playlist-track {
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: rgba(0,243,255,0.05);
+            color: var(--muted);
+            border: 1px solid rgba(0,243,255,0.08);
+        }
+        .queue-item {
+            border-left: 4px solid var(--queue-color, var(--accent));
+            box-shadow: 0 0 12px rgba(0,243,255,0.06);
+        }
+        .queue-item strong, .playlist-track strong {
+            color: var(--text);
+        }
+        .btn, button, input[type="submit"] {
+            border: 0;
+            border-radius: 999px;
+            padding: 11px 15px;
+            min-height: 44px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            box-shadow: 0 0 10px rgba(0,243,255,0.18);
+        }
+        .btn-primary { background: var(--accent); color: #021519; }
+        .btn-secondary { background: rgba(0,243,255,0.08); color: var(--text); border: 1px solid rgba(0,243,255,0.18); }
+        .btn-admin { background: var(--accent-2); color: #eef4ff; }
+        .btn-danger { background: rgba(255,92,138,0.18); color: #ffd7e3; border: 1px solid rgba(255,92,138,0.26); }
+        .btn-success { background: rgba(125,247,207,0.14); color: #d5fff1; border: 1px solid rgba(125,247,207,0.22); }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        .header h2 {
+            margin: 0;
+            font-size: 2rem;
+        }
+        .header p {
+            margin: 8px 0 0;
+            color: var(--muted);
+        }
+        .top-actions, .admin-actions, .track-actions, .row-actions, .playlist-actions, .tab-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .track-actions > *, .row-actions > *, .playlist-actions > *, .tab-bar > * {
+            flex: 1 1 140px;
+        }
+        .flash {
+            padding: 14px 18px;
+            border-radius: 16px;
+            font-weight: 600;
+        }
+        .flash.success { background: rgba(0,243,255,0.12); color: #adf7ff; box-shadow: 0 0 10px rgba(0,243,255,0.18); }
+        .flash.error { background: rgba(255,92,138,0.16); color: #ffc0d2; box-shadow: 0 0 10px rgba(255,92,138,0.18); }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 18px;
+        }
+        .toolbar input, .toolbar select, .form-grid input, .form-grid select {
+            width: 100%;
+            background: rgba(0,243,255,0.05);
+            border: 1px solid var(--line);
+            color: var(--text);
+            border-radius: 14px;
+            padding: 12px 14px;
+            outline: none;
+            box-shadow: 0 0 10px rgba(0,243,255,0.12);
+        }
+        #search {
+            width: 100%;
+            max-width: 340px;
+            border-radius: 999px;
+        }
+        .tab-btn {
+            background: rgba(0,243,255,0.05);
+            color: var(--muted);
+            border: 1px solid rgba(0,243,255,0.12);
+        }
+        .tab-btn.active {
+            background: rgba(0,243,255,0.14);
+            color: var(--text);
+            border-color: rgba(0,243,255,0.28);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: grid; }
+        .track-grid {
+            display: grid;
+            gap: 12px;
+            padding: 0 18px 18px;
+        }
+        .track-card {
+            display: grid;
+            grid-template-columns: 72px 1fr;
+            gap: 14px;
+            align-items: start;
+            padding: 16px;
+            border-radius: 18px;
+            background: rgba(0,243,255,0.04);
+            border: 1px solid rgba(0,243,255,0.08);
+            box-shadow: 0 0 12px rgba(0,243,255,0.06);
+        }
+        .track-meta {
+            display: grid;
+            gap: 10px;
+        }
+        .track-meta strong {
+            display: block;
+            font-size: 1rem;
+        }
+        .track-meta span {
+            display: block;
+            color: var(--muted);
+            margin-top: 4px;
+            font-size: 0.88rem;
+        }
+        .track-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .inline-select {
+            min-width: 180px;
+            max-width: 240px;
+            background: rgba(0,243,255,0.05);
+            border: 1px solid var(--line);
+            color: var(--text);
+            border-radius: 999px;
+            padding: 10px 14px;
+        }
+        .playlist-card {
+            display: grid;
+            gap: 14px;
+            padding: 18px;
+            border-radius: 18px;
+            background: rgba(0,243,255,0.04);
+            border: 1px solid rgba(0,243,255,0.08);
+        }
+        .playlist-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .playlist-track {
+            display: grid;
+            grid-template-columns: 56px 1fr auto;
+            gap: 12px;
+            align-items: center;
+        }
+        .playlist-thumb {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+        }
+        .empty-state {
+            padding: 22px;
+            border-radius: 18px;
+            border: 1px dashed rgba(0,243,255,0.18);
+            color: var(--muted);
+            text-align: center;
+            background: rgba(0,243,255,0.03);
+        }
+        .queue-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        @media (max-width: 1180px) {
+            .shell { grid-template-columns: 1fr; padding: 14px; gap: 14px; }
+            .sidebar { position: static; height: auto; }
+        }
+        @media (max-width: 720px) {
+            .sidebar, .content { padding: 16px; }
+            .header h2 { font-size: 1.5rem; }
+            .track-card, .playlist-track { grid-template-columns: 1fr; }
+            .track-cover, .playlist-thumb { width: 100%; height: 180px; }
+            #search { max-width: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar panel">
+            <div class="brand">
+                <h1>🎶 {{ app_name }}</h1>
+                <span class="role">{{ '👑 Admin' if user.is_admin else '🙂 User' }}</span>
+            </div>
+
+            <div class="stack">
+                <section class="card">
+                    <h2>🎵 En cours</h2>
+                    <div class="status-pill">🔊 {{ backend_name }}</div>
+                    <div id="current-card" class="current-track"></div>
+                </section>
+
+                <section class="card">
+                    <h3>📦 Mon quota</h3>
+                    <div id="quota-row" class="metric-row"></div>
+                    <p class="sub">🎵 200 max par personne</p>
+                </section>
+
+                <section class="card">
+                    <h3>🧾 File</h3>
+                    <p class="sub">👥 Chacun son tour</p>
+                    <ul id="queue-summary" class="queue-list"></ul>
+                    <div class="admin-actions" style="margin-top:12px;">
+                        <button class="btn-secondary" onclick="clearMyQueue()">🚪 Je pars, retirer mes musiques</button>
+                    </div>
+                </section>
+
+                {% if user.is_admin %}
+                <section class="card">
+                    <h3>🛠️ Admin</h3>
+                    <div class="admin-actions">
+                        <button class="btn-admin" onclick="skipCurrent()">⏭️ Passer</button>
+                    </div>
+                    <div id="volume-card" class="volume-card"></div>
+                </section>
+                {% endif %}
+
+                <section class="card">
+                    <h3>➕ Ajouter</h3>
+                    <p class="sub">🎵 1 son + 🖼️ 1 image optionnelle</p>
+                    <form action="{{ url_for('upload_track') }}" method="POST" enctype="multipart/form-data" class="form-grid">
+                        <input type="file" name="audio_file" accept=".mp3,.flac,.wav,.m4a,.webm,.ogg" required>
+                        <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp">
+                        <input type="submit" class="btn-primary" value="🎧 Ajouter">
+                    </form>
+                    <p class="sub">🎵 {{ max_track_filesize_label }} max • 🖼️ {{ max_image_upload_label }} max</p>
+                </section>
+
+                <section class="card">
+                    <h3>📁 Importer</h3>
+                    <p class="sub">🎵 Dossier local. Les images du meme nom sont liees auto.</p>
+                    <form action="{{ url_for('import_folder') }}" method="POST" enctype="multipart/form-data" class="form-grid">
+                        <input type="file" name="folder_files" webkitdirectory directory multiple required>
+                        <input type="submit" class="btn-secondary" value="📥 Importer">
+                    </form>
+                    <p class="sub">📦 {{ max_folder_import_label }} max • 👤 200 morceaux</p>
+                </section>
+
+            </div>
+        </aside>
+
+        <main class="content panel">
+            <div class="header">
+                <div>
+                    <h2>🎛️ Les enceintes</h2>
+                    <p>Simple, rapide, mobile.</p>
+                </div>
+                <div class="top-actions">
+                    {% if user.is_admin %}
+                    <a class="btn-admin btn" href="{{ url_for('admin_panel') }}">🛠️ Admin</a>
+                    {% endif %}
+                    <button class="btn-secondary" type="button" onclick="openBluetoothModal()">📶 Bluetooth ?</button>
+                    <a class="btn-secondary btn" href="{{ url_for('logout') }}">🚪 Sortir</a>
+                </div>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <section class="card">
+                <div class="toolbar">
+                    <div>
+                        <strong>🧭 Onglets</strong>
+                        <div class="sub">Tape, cherche, lance.</div>
+                    </div>
+                    <input id="search" type="search" placeholder="🔎 Chercher un son, un artiste, un membre">
+                </div>
+                <div id="tab-bar" class="tab-bar" style="padding: 0 18px 18px;"></div>
+            </section>
+
+            <section id="tab-library" class="tab-panel panel"></section>
+            <section id="tab-favorites" class="tab-panel panel"></section>
+            <section id="tab-playlists" class="tab-panel panel"></section>
+            <section id="tab-queue" class="tab-panel panel"></section>
+        </main>
+    </div>
+
+    <footer class="page-footer">{{ footer_credit }}</footer>
+
+    <div id="bluetooth-modal" class="modal-backdrop" onclick="closeBluetoothModal(event)">
+        <div class="modal-card">
+            <h3>Comment se connecter en Bluetooth ?</h3>
+            <p class="sub">Veuillez demander au bureau du club d'acheter une ou plusieurs cles USB Bluetooth ! Cela permettra de connecter plusieurs telephones ou PC et de passer de l'un a l'autre facilement.</p>
+            <button class="btn-primary" type="button" onclick="closeBluetoothModal()">Compris</button>
+        </div>
+    </div>
+
+    <script>
+        let dashboard = {{ dashboard_json|safe }};
+        let playerState = dashboard.player_state || { current: null, queue: [] };
+        const isAdmin = {{ 'true' if user.is_admin else 'false' }};
+        const placeholderCover = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128'><rect width='100%25' height='100%25' rx='20' fill='%2308121f'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' fill='%2300f3ff' font-size='22' font-family='Arial'>Nixify</text></svg>";
+        let activeTab = 'library';
+        let lazyCoverObserver = null;
+        let volumeUpdateTimer = null;
+        let volumeRequestInFlight = false;
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+        }
+
+        function formatDuration(totalSeconds) {
+            if (totalSeconds === null || totalSeconds === undefined || Number.isNaN(Number(totalSeconds))) {
+                return '--:--';
+            }
+            const whole = Math.max(0, Math.floor(Number(totalSeconds)));
+            const hours = Math.floor(whole / 3600);
+            const minutes = Math.floor((whole % 3600) / 60);
+            const seconds = whole % 60;
+            if (hours > 0) {
+                return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            }
+            return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        function colorForUser(name) {
+            const value = String(name || 'nixify');
+            let hash = 0;
+            for (let index = 0; index < value.length; index += 1) {
+                hash = ((hash << 5) - hash) + value.charCodeAt(index);
+                hash |= 0;
+            }
+            return `hsl(${Math.abs(hash) % 360} 95% 68%)`;
+        }
+
+        function coverImageTag(className, coverUrl) {
+            if (!coverUrl) {
+                return `<img class="${className}" src="${placeholderCover}" alt="" loading="lazy" decoding="async" fetchpriority="low">`;
+            }
+            return `<img class="${className} lazy-cover" src="${placeholderCover}" data-src="${escapeHtml(coverUrl)}" alt="" loading="lazy" decoding="async" fetchpriority="low">`;
+        }
+
+        function loadLazyCover(image) {
+            if (!image || !image.dataset || !image.dataset.src) {
+                return;
+            }
+            image.src = image.dataset.src;
+            image.removeAttribute('data-src');
+            image.classList.remove('lazy-cover');
+        }
+
+        function ensureLazyCoverObserver() {
+            if (lazyCoverObserver || !('IntersectionObserver' in window)) {
+                return;
+            }
+            lazyCoverObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) {
+                        return;
+                    }
+                    loadLazyCover(entry.target);
+                    lazyCoverObserver.unobserve(entry.target);
+                });
+            }, { rootMargin: '280px 0px' });
+        }
+
+        function hydrateLazyImages(root = document) {
+            const images = root.querySelectorAll('img[data-src]');
+            if (!images.length) {
+                return;
+            }
+            if (!('IntersectionObserver' in window)) {
+                images.forEach(loadLazyCover);
+                return;
+            }
+            ensureLazyCoverObserver();
+            images.forEach((image) => {
+                lazyCoverObserver.unobserve(image);
+                lazyCoverObserver.observe(image);
+            });
+        }
+
+        async function postJson(url, body) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body || {})
+            });
+            const raw = await response.text();
+            let data = {};
+            try {
+                data = raw ? JSON.parse(raw) : {};
+            } catch (_error) {
+                throw new Error(raw || `Erreur ${response.status}`);
+            }
+            if (!response.ok) {
+                throw new Error(data.message || `Erreur ${response.status}`);
+            }
+            return data;
+        }
+
+        async function refreshDashboard() {
+            const response = await fetch('{{ url_for("dashboard_data") }}', { cache: 'no-store' });
+            dashboard = await response.json();
+            playerState = dashboard.player_state || { current: null, queue: [] };
+            renderApp();
+        }
+
+        async function refreshState() {
+            const response = await fetch('{{ url_for("player_state") }}', { cache: 'no-store' });
+            playerState = await response.json();
+            renderCurrentCard();
+            renderVolumeCard();
+            renderQueueSummary();
+            renderQueueTab();
+        }
+
+        function setTab(name) {
+            activeTab = name;
+            renderTabs();
+            renderPanels();
+        }
+
+        function tabButton(label, key) {
+            return `<button class="tab-btn ${activeTab === key ? 'active' : ''}" onclick="setTab('${key}')">${label}</button>`;
+        }
+
+        function openBluetoothModal() {
+            document.getElementById('bluetooth-modal').classList.add('open');
+        }
+
+        function closeBluetoothModal(event) {
+            if (event && event.currentTarget && event.target !== event.currentTarget) {
+                return;
+            }
+            document.getElementById('bluetooth-modal').classList.remove('open');
+        }
+
+        function renderTabs() {
+            document.getElementById('tab-bar').innerHTML = [
+                tabButton('🎵 Sons', 'library'),
+                tabButton('❤️ Favoris', 'favorites'),
+                tabButton('📚 Playlists', 'playlists'),
+                tabButton('🧾 File', 'queue')
+            ].join('');
+
+            ['library', 'favorites', 'playlists', 'queue'].forEach((name) => {
+                const panel = document.getElementById(`tab-${name}`);
+                if (!panel) return;
+                panel.classList.toggle('active', activeTab === name);
+            });
+        }
+
+        function queueRemoveButton(item) {
+            if (!item.can_remove) {
+                return '';
+            }
+            return `<button class="btn-danger" onclick="removeQueueItem(${item.queue_index})">🗑️</button>`;
+        }
+
+        function playlistOptions(trackId) {
+            if (!dashboard.playlists || !dashboard.playlists.length) {
+                return `<option value="">📚 Cree une liste</option>`;
+            }
+            return [
+                `<option value="">➕ Playlist</option>`,
+                ...dashboard.playlists.map((playlist) => `<option value="${playlist.id}">${escapeHtml(playlist.name)}</option>`)
+            ].join('');
+        }
+
+        function renderTrackCard(track) {
+            const playlistSelectId = `playlist-select-${track.id}`;
+            return `
+                <article class="track-card">
+                    ${coverImageTag('track-cover', track.cover_url)}
+                    <div class="track-meta">
+                        <div class="track-row">
+                            <div>
+                                <strong>${escapeHtml(track.nom)}</strong>
+                                <span>${escapeHtml(track.author || 'Auteur inconnu')}</span>
+                                <span>👤 ${escapeHtml(track.owner)} · 📁 ${escapeHtml(track.category || 'Bibliotheque')}</span>
+                            </div>
+                            <div class="row-actions">
+                                <span class="tiny-pill">⏱️ ${formatDuration(track.duration)}</span>
+                                ${track.is_favorite ? '<span class="tiny-pill">❤️ Fav</span>' : ''}
+                            </div>
+                        </div>
+                        <div class="track-actions">
+                            <button class="btn-secondary" onclick="enqueueTrack(${track.id}, false)">▶️ File</button>
+                            <button class="btn-success" onclick="enqueueTrack(${track.id}, true)">🔁 Boucle</button>
+                            <button class="btn-secondary" onclick="toggleFavorite(${track.id})">${track.is_favorite ? '💔 Fav' : '❤️ Fav'}</button>
+                            ${isAdmin ? `<button class="btn-admin" onclick="playNext(${track.id}, false)">⏫ Suivant</button>` : ''}
+                            ${isAdmin ? `<button class="btn-admin" onclick="playNow(${track.id}, false)">⚡ Now</button>` : ''}
+                        </div>
+                        ${track.can_delete ? `
+                            <div class="track-actions">
+                                <button class="btn-secondary" data-track-name="${escapeHtml(track.nom || '')}" onclick="renameTrack(${track.id}, this.dataset.trackName)">✏️ Renommer</button>
+                                <button class="btn-danger" onclick="deleteTrack(${track.id})">🗑️ Suppr.</button>
+                            </div>
+                        ` : ''}
+                        <div class="track-actions">
+                            <select id="${playlistSelectId}" class="inline-select">${playlistOptions(track.id)}</select>
+                            <button class="btn-secondary" onclick="addTrackToSelectedPlaylist(${track.id}, '${playlistSelectId}')">➕ Liste</button>
+                        </div>
+                    </div>
+                </article>
+            `;
+        }
+
+        function filteredTracks(source) {
+            const query = document.getElementById('search').value.trim().toLowerCase();
+            return source.filter((track) => {
+                if (!query) return true;
+                return [
+                    track.nom,
+                    track.author,
+                    track.owner,
+                    track.category,
+                    track.logical_name
+                ].some((value) => String(value || '').toLowerCase().includes(query));
+            });
+        }
+
+        function renderTrackPanel(panelId, title, subtitle, tracks, extraActionsHtml = '') {
+            const root = document.getElementById(panelId);
+            const list = filteredTracks(tracks);
+            root.innerHTML = `
+                <div class="toolbar">
+                    <div>
+                        <strong>${escapeHtml(title)}</strong>
+                        <div class="sub">${escapeHtml(subtitle)}</div>
+                    </div>
+                    ${extraActionsHtml ? `<div class="row-actions">${extraActionsHtml}</div>` : ''}
+                    <div class="tiny-pill">🎵 ${list.length}</div>
+                </div>
+                <div class="track-grid">
+                    ${list.length ? list.map(renderTrackCard).join('') : `<div class="empty-state">😴 Rien ici.</div>`}
+                </div>
+            `;
+        }
+
+        function renderPlaylistsPanel() {
+            const root = document.getElementById('tab-playlists');
+            const playlists = dashboard.playlists || [];
+            root.innerHTML = `
+                <div class="toolbar">
+                    <div>
+                        <strong>📚 Mes playlists</strong>
+                        <div class="sub">Cree, remplis, lance.</div>
+                    </div>
+                    <form class="row-actions" onsubmit="createPlaylist(event)">
+                        <input id="new-playlist-name" type="text" placeholder="📝 Nom de la playlist" style="min-width:220px;">
+                        <button class="btn-primary" type="submit">➕ Creer</button>
+                    </form>
+                </div>
+                <div class="track-grid">
+                    ${playlists.length ? playlists.map(renderPlaylistCard).join('') : `<div class="empty-state">📚 Aucune playlist.</div>`}
+                </div>
+            `;
+        }
+
+        function renderPlaylistCard(playlist) {
+            const tracks = playlist.tracks || [];
+            return `
+                <section class="playlist-card">
+                    <div class="playlist-header">
+                        <div>
+                            <strong>${escapeHtml(playlist.name)}</strong>
+                            <div class="sub">🎵 ${tracks.length} son(s)</div>
+                        </div>
+                        <div class="playlist-actions">
+                            <button class="btn-secondary" onclick="enqueuePlaylist(${playlist.id}, false)">▶️ Normal</button>
+                            <button class="btn-success" onclick="enqueuePlaylist(${playlist.id}, true)">🔁 Boucle</button>
+                            <button class="btn-danger" onclick="deletePlaylist(${playlist.id})">🗑️ Suppr.</button>
+                        </div>
+                    </div>
+                    <ul class="playlist-tracks">
+                        ${tracks.length ? tracks.map((track) => `
+                            <li class="playlist-track">
+                                ${coverImageTag('playlist-thumb', track.cover_url)}
+                                <div>
+                                    <strong>${escapeHtml(track.nom)}</strong>
+                                    <div class="sub">🎤 ${escapeHtml(track.author || 'Auteur inconnu')} · 👤 ${escapeHtml(track.owner)}</div>
+                                </div>
+                                <div class="row-actions">
+                                    <button class="btn-secondary" onclick="removeTrackFromPlaylist(${playlist.id}, ${track.id})">➖ Retirer</button>
+                                </div>
+                            </li>
+                        `).join('') : `<li class="empty-state">😴 Playlist vide.</li>`}
+                    </ul>
+                </section>
+            `;
+        }
+
+        function renderQueueSummary() {
+            const queueRoot = document.getElementById('queue-summary');
+            const queue = playerState.queue || [];
+            if (!queue.length) {
+                queueRoot.innerHTML = '<li>😴 Vide.</li>';
+                return;
+            }
+            queueRoot.innerHTML = queue.slice(0, 6).map((item, index) => `
+                <li style="border-left:4px solid ${colorForUser(item.requested_by)};">
+                    <strong>#${index + 1} ${escapeHtml(item.nom)}</strong><br>
+                    👤 ${escapeHtml(item.requested_by)} · 📦 ${escapeHtml(item.owner)}
+                    ${item.is_priority ? '<span class="tiny-pill" style="margin-left:8px;">⏫</span>' : ''}
+                    ${item.loop_mode ? '<span class="loop-pill" style="margin-left:8px;">🔁</span>' : ''}
+                    ${item.can_remove ? `<span style="display:inline-flex; margin-left:8px;">${queueRemoveButton(item)}</span>` : ''}
+                </li>
+            `).join('');
+        }
+
+        function renderQueueTab() {
+            const root = document.getElementById('tab-queue');
+            const queue = playerState.queue || [];
+            root.innerHTML = `
+                <div class="toolbar">
+                    <div class="queue-head">
+                        <div>
+                            <strong>🧾 File actuelle</strong>
+                            <div class="sub">👥 Chacun son tour</div>
+                        </div>
+                        <div class="row-actions">
+                            <button class="btn-secondary" onclick="clearMyQueue()">🚪 Je pars, retirer mes musiques</button>
+                        </div>
+                        <div class="tiny-pill">🎵 ${queue.length}</div>
+                    </div>
+                </div>
+                <div class="track-grid">
+                    ${queue.length ? `
+                        <ul class="queue-visual">
+                            ${queue.map((item, index) => `
+                                <li class="queue-item" style="--queue-color:${colorForUser(item.requested_by)};">
+                                    <div class="track-row">
+                                        <div>
+                                            <strong>#${index + 1} ${escapeHtml(item.nom)}</strong>
+                                            <div class="sub">🎤 ${escapeHtml(item.author || 'Auteur inconnu')}</div>
+                                        </div>
+                                        <div class="row-actions">
+                                            <span class="user-pill" style="border-color:${colorForUser(item.requested_by)}; box-shadow:0 0 10px ${colorForUser(item.requested_by)}33;">🙋 ${escapeHtml(item.requested_by)}</span>
+                                            <span class="tiny-pill">📦 ${escapeHtml(item.owner)}</span>
+                                            ${item.is_priority ? '<span class="tiny-pill">⏫ Priorite</span>' : ''}
+                                            ${item.loop_mode ? '<span class="loop-pill">🔁 Boucle</span>' : ''}
+                                            ${queueRemoveButton(item)}
+                                        </div>
+                                    </div>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    ` : `<div class="empty-state">😴 File vide.</div>`}
+                </div>
+            `;
+        }
+
+        function renderCurrentCard() {
+            const current = playerState.current;
+            const root = document.getElementById('current-card');
+            if (!current) {
+                root.innerHTML = `<img src="${placeholderCover}" alt=""><div><strong>😴 Rien en cours</strong><div class="sub">En attente d'un son.</div></div>`;
+                return;
+            }
+            root.innerHTML = `
+                <img src="${current.cover_url || placeholderCover}" alt="">
+                <div>
+                    <strong>${escapeHtml(current.nom)}</strong>
+                    <div class="sub">🎤 ${escapeHtml(current.author || 'Auteur inconnu')}</div>
+                    <div class="sub">📦 ${escapeHtml(current.owner)} · 🙋 ${escapeHtml(current.requested_by)}</div>
+                    ${current.loop_mode ? '<div class="sub">🔁 Boucle</div>' : ''}
+                    ${(current.can_stop || current.can_skip) ? `
+                        <div class="track-actions" style="margin-top:10px;">
+                            ${current.can_skip ? '<button class="btn-admin" onclick="skipCurrent()">⏭️ Passer</button>' : ''}
+                            ${current.can_stop ? '<button class="btn-danger" onclick="stopPlayback()">⏹️ Arreter</button>' : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function renderVolumeCard() {
+            const root = document.getElementById('volume-card');
+            if (!root) {
+                return;
+            }
+            if (!playerState.can_set_volume) {
+                root.innerHTML = '<div class="sub">Le backend audio actuel ne permet pas de regler le volume depuis le web.</div>';
+                return;
+            }
+            const volume = Number(playerState.volume ?? 0);
+            root.innerHTML = `
+                <div>
+                    <strong>🔊 Volume web</strong>
+                    <div class="sub">Pilotage du son global depuis l'interface admin.</div>
+                </div>
+                <div class="volume-row">
+                    <input id="volume-slider" type="range" min="0" max="100" step="1" value="${volume}" aria-label="Volume">
+                    <span id="volume-value" class="volume-value">${volume}%</span>
+                </div>
+            `;
+            const slider = document.getElementById('volume-slider');
+            const value = document.getElementById('volume-value');
+            slider.addEventListener('input', () => {
+                value.textContent = `${slider.value}%`;
+                window.clearTimeout(volumeUpdateTimer);
+                volumeUpdateTimer = window.setTimeout(() => applyVolume(slider.value), 180);
+            });
+            slider.addEventListener('change', () => {
+                window.clearTimeout(volumeUpdateTimer);
+                applyVolume(slider.value);
+            });
+        }
+
+        function renderQuota() {
+            const root = document.getElementById('quota-row');
+            root.innerHTML = `
+                <span>🎵 ${dashboard.track_count} / ${dashboard.track_limit}</span>
+                <span>🟢 ${dashboard.remaining_slots} libres</span>
+            `;
+        }
+
+        function renderPanels() {
+            renderTrackPanel(
+                'tab-library',
+                '🎵 Sons',
+                'Catalogue partage, sans doublons.',
+                dashboard.tracks || []
+            );
+            renderTrackPanel(
+                'tab-favorites',
+                '❤️ Favoris',
+                'Vos raccourcis.',
+                dashboard.favorites || [],
+                `
+                    <button class="btn-secondary" onclick="enqueueFavorites(false)">▶️ Envoyer</button>
+                    <button class="btn-success" onclick="enqueueFavorites(true)">🔁 Boucle</button>
+                `
+            );
+            renderPlaylistsPanel();
+            renderQueueTab();
+            hydrateLazyImages();
+        }
+
+        function renderApp() {
+            renderQuota();
+            renderCurrentCard();
+            renderVolumeCard();
+            renderQueueSummary();
+            renderTabs();
+            renderPanels();
+        }
+
+        async function applyVolume(volumeValue) {
+            if (volumeRequestInFlight) {
+                return;
+            }
+            volumeRequestInFlight = true;
+            try {
+                const data = await postJson('{{ url_for("set_volume") }}', { volume: Number(volumeValue) });
+                playerState.volume = Number(data.volume ?? volumeValue);
+                renderVolumeCard();
+            } catch (error) {
+                alert(error.message);
+                await refreshState();
+            } finally {
+                volumeRequestInFlight = false;
+            }
+        }
+
+        async function toggleFavorite(trackId) {
+            try {
+                await postJson(`/favorite/${trackId}`);
+                await refreshDashboard();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function enqueueTrack(trackId, loopMode) {
+            try {
+                await postJson('{{ url_for("enqueue_track") }}', { track_id: trackId, loop_mode: loopMode });
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function playNow(trackId, loopMode) {
+            try {
+                await postJson('{{ url_for("play_now") }}', { track_id: trackId, loop_mode: loopMode });
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function playNext(trackId, loopMode) {
+            try {
+                await postJson('{{ url_for("play_next") }}', { track_id: trackId, loop_mode: loopMode });
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function skipCurrent() {
+            try {
+                await postJson('{{ url_for("skip_track") }}');
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function stopPlayback() {
+            try {
+                await postJson('{{ url_for("stop_playback") }}');
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function clearMyQueue() {
+            try {
+                await postJson('/queue/clear-my-tracks');
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function removeQueueItem(queueIndex) {
+            try {
+                await postJson(`/queue/remove/${queueIndex}`);
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function createPlaylist(event) {
+            event.preventDefault();
+            const input = document.getElementById('new-playlist-name');
+            const name = (input.value || '').trim();
+            if (!name) {
+                alert('Nom de playlist manquant.');
+                return;
+            }
+            try {
+                await postJson('{{ url_for("create_playlist") }}', { name });
+                input.value = '';
+                await refreshDashboard();
+                setTab('playlists');
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function addTrackToSelectedPlaylist(trackId, selectId) {
+            const select = document.getElementById(selectId);
+            const playlistId = Number(select.value);
+            if (!playlistId) {
+                alert('Choisissez une playlist.');
+                return;
+            }
+            try {
+                await postJson(`/playlist/${playlistId}/tracks/${trackId}`, {});
+                select.value = '';
+                await refreshDashboard();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function removeTrackFromPlaylist(playlistId, trackId) {
+            try {
+                await postJson(`/playlist/${playlistId}/tracks/${trackId}/remove`, {});
+                await refreshDashboard();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function deletePlaylist(playlistId) {
+            if (!window.confirm('Supprimer cette playlist ?')) {
+                return;
+            }
+            try {
+                await postJson(`/playlist/${playlistId}/delete`, {});
+                await refreshDashboard();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function enqueuePlaylist(playlistId, loopMode) {
+            try {
+                await postJson(`/playlist/${playlistId}/enqueue`, { loop_mode: loopMode });
+                await refreshState();
+                setTab('queue');
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function enqueueFavorites(loopMode) {
+            try {
+                await postJson('{{ url_for("enqueue_favorites") }}', { loop_mode: loopMode });
+                await refreshState();
+                setTab('queue');
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function deleteTrack(trackId) {
+            if (!window.confirm('Supprimer ce morceau de la bibliotheque ?')) {
+                return;
+            }
+            try {
+                await postJson(`/delete/${trackId}`, {});
+                await refreshDashboard();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function renameTrack(trackId, currentName) {
+            const nextName = window.prompt('Nouveau nom du morceau :', currentName || '');
+            if (nextName === null) {
+                return;
+            }
+            const cleanName = String(nextName || '').trim();
+            if (!cleanName) {
+                alert('Nom invalide.');
+                return;
+            }
+            if (cleanName === String(currentName || '').trim()) {
+                return;
+            }
+            try {
+                await postJson(`/rename/${trackId}`, { new_name: cleanName });
+                await refreshDashboard();
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        document.getElementById('search').addEventListener('input', () => renderPanels());
+        renderApp();
+        setInterval(() => refreshState().catch(() => {}), 3000);
+    </script>
+</body>
+</html>

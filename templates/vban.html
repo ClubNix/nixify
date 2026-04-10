@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream VBAN - {{ app_name }}</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(145deg, #05070d, #0a0a12 58%, #07101b);
+            color: #eef4fb;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+        .box {
+            width: min(720px, 100%);
+            padding: 34px;
+            border-radius: 28px;
+            background: rgba(9, 17, 29, 0.96);
+            border: 1px solid rgba(0,243,255,0.24);
+            box-shadow: 0 0 10px rgba(0,243,255,0.28), 0 24px 60px rgba(0,0,0,0.42);
+        }
+        h1 { margin: 0 0 10px; color: #00f3ff; text-shadow: 0 0 10px #00f3ff; }
+        p, li { color: #b8c7d8; line-height: 1.55; }
+        .target {
+            margin: 22px 0;
+            padding: 18px;
+            border-radius: 18px;
+            background: rgba(0,243,255,0.05);
+            font-size: 1.05rem;
+            box-shadow: 0 0 10px rgba(0,243,255,0.1);
+        }
+        code {
+            background: rgba(0,243,255,0.08);
+            padding: 2px 8px;
+            border-radius: 999px;
+            color: #00f3ff;
+        }
+        a { display: inline-block; margin-top: 18px; color: #00f3ff; text-decoration: none; }
+        .footer-note {
+            margin-top: 18px;
+            color: #b8c7d8;
+            font-size: 0.82rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>Stream VBAN</h1>
+        <p>Cette page sert uniquement de pense-bete pour les membres qui souhaitent envoyer leur propre flux audio vers le mini PC du club.</p>
+
+        <div class="target">
+            Cible VBAN : <code>{{ server_ip }}</code><br>
+            Port UDP : <code>6980</code>
+        </div>
+
+        <ol>
+            <li>Ouvrez votre outil VBAN favori sur votre machine.</li>
+            <li>Configurez un flux sortant vers l'adresse IP locale <code>{{ server_ip }}</code>.</li>
+            <li>Utilisez le port <code>6980</code> pour envoyer le stream au mini PC relie a la chaine hi-fi du club.</li>
+            <li>Choisissez un nom de stream explicite pour que l'equipe puisse l'identifier facilement.</li>
+        </ol>
+
+        <p>Cette interface n'active pas elle-meme VBAN cote serveur : elle affiche seulement les informations de connexion pour les membres.</p>
+        <a href="{{ url_for('index') }}">Retour a {{ app_name }}</a>
+        <div class="footer-note">{{ footer_credit }}</div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+
+sons/
+user_cookies/
+
+users.db
+nixify.db
+*.db-shm
+*.db-wal
+
+.env
+.env.*
