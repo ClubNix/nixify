@@ -70,6 +70,28 @@
             background: rgba(255,107,107,0.14);
             color: #ffc3c3;
         }
+        .notice {
+            margin: 16px 0 18px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: rgba(0,243,255,0.07);
+            border: 1px solid rgba(0,243,255,0.18);
+            color: #c9d9e8;
+            line-height: 1.45;
+        }
+        .role-pill {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 8px;
+            padding: 4px 9px;
+            border-radius: 999px;
+            background: rgba(125,247,207,0.12);
+            border: 1px solid rgba(125,247,207,0.24);
+            color: #b9ffe9;
+            font-size: 0.76rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
         input, button, a {
             border-radius: 14px;
             padding: 12px 14px;
@@ -120,6 +142,7 @@
                 </div>
                 <div class="actions">
                     <span class="badge">Connecte en tant que {{ user.username }}</span>
+                    <a class="btn btn-secondary" href="{{ url_for('admin_features_panel') }}">Fonctionnalites</a>
                     <a class="btn btn-secondary" href="{{ url_for('index') }}">Retour</a>
                 </div>
             </div>
@@ -138,15 +161,38 @@
         <section class="panel">
             <h2>Utilisateurs</h2>
             <div class="sub" style="margin-bottom: 18px;">{{ users|length }} compte(s) au total.</div>
+            <div class="notice">
+                Pour donner les droits admin a un membre, utilisez le bouton <strong>Passer admin</strong> sur sa ligne.
+                Un admin peut lancer un morceau tout de suite, gerer le volume, supprimer les comptes et modifier les roles.
+            </div>
 
             {% for member in users %}
                 <div class="user-row">
                     <div>
                         <strong>{{ member.username }}</strong>
+                        {% if member.role == 'admin' %}
+                            <span class="role-pill">Admin</span>
+                        {% endif %}
                         <div class="sub">Role : {{ member.role or 'user' }} • {{ member.track_count }} morceau(x)</div>
                     </div>
 
                     <div class="actions">
+                        {% if member.role == 'admin' %}
+                            {% if member.id == user.id %}
+                                <span class="badge">Vous etes admin</span>
+                            {% else %}
+                                <form method="POST" action="{{ url_for('admin_update_user_role', user_id=member.id) }}" onsubmit="return confirm('Retirer les droits admin de {{ member.username }} ?');">
+                                    <input type="hidden" name="role" value="user">
+                                    <button class="btn-secondary" type="submit">Repasser membre</button>
+                                </form>
+                            {% endif %}
+                        {% else %}
+                            <form method="POST" action="{{ url_for('admin_update_user_role', user_id=member.id) }}" onsubmit="return confirm('Donner les droits admin a {{ member.username }} ?');">
+                                <input type="hidden" name="role" value="admin">
+                                <button type="submit">Passer admin</button>
+                            </form>
+                        {% endif %}
+
                         <form class="password-form" method="POST" action="{{ url_for('admin_reset_password', user_id=member.id) }}">
                             <input type="text" name="new_password" placeholder="Laisser vide pour generer un mdp temporaire">
                             <button type="submit">Reset mot de passe</button>

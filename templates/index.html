@@ -190,6 +190,34 @@
             color: var(--accent);
             font-weight: 700;
         }
+        .platform-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .platform-list .tiny-pill {
+            border-color: rgba(125,247,207,0.22);
+            background: rgba(125,247,207,0.08);
+            color: var(--success);
+        }
+        .checkbox-row {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            color: var(--text);
+            font-weight: 700;
+            line-height: 1.35;
+        }
+        .checkbox-row.open {
+            display: flex;
+        }
+        .checkbox-row input {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+            flex: 0 0 auto;
+        }
         .queue-list, .queue-visual, .playlist-tracks {
             margin: 0;
             padding: 0;
@@ -273,6 +301,14 @@
             padding: 12px 14px;
             outline: none;
             box-shadow: 0 0 10px rgba(0,243,255,0.12);
+        }
+        .form-grid .checkbox-row input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            min-height: 0;
+            padding: 0;
+            margin: 0;
+            box-shadow: none;
         }
         #search {
             width: 100%;
@@ -420,15 +456,33 @@
                     </div>
                 </section>
 
-                {% if user.is_admin %}
-                <section class="card">
-                    <h3>🛠️ Admin</h3>
+                <section id="volume-section" class="card">
+                    <h3>🔊 Son</h3>
                     <div class="admin-actions">
+                        {% if user.is_admin %}
                         <button class="btn-admin" onclick="skipCurrent()">⏭️ Passer</button>
+                        <a class="btn-secondary btn" href="{{ url_for('admin_features_panel') }}">Fonctionnalites</a>
+                        {% endif %}
                     </div>
                     <div id="volume-card" class="volume-card"></div>
                 </section>
-                {% endif %}
+
+                <section id="streaming-section" class="card">
+                    <h3>🌐 Streaming</h3>
+                    <p id="streaming-hint" class="sub"></p>
+                    <div id="streaming-platforms" class="platform-list"></div>
+                    <form id="streaming-form" class="form-grid" onsubmit="enqueueStream(event)">
+                        <input id="streaming-url" type="text" placeholder="Coller une URL ou chercher un titre" required>
+                        <label id="streaming-karaoke-row" class="checkbox-row">
+                            <input id="streaming-karaoke-mode" type="checkbox">
+                            <span>Mode karaoké pour ce morceau</span>
+                        </label>
+                        <div class="track-actions">
+                            <button class="btn-secondary" type="submit">▶️ Envoyer</button>
+                            <button class="btn-success" type="button" onclick="enqueueStream(event, true)">🔁 Boucle</button>
+                        </div>
+                    </form>
+                </section>
 
                 <section class="card">
                     <h3>➕ Ajouter</h3>
@@ -621,6 +675,7 @@
             playerState = await response.json();
             renderCurrentCard();
             renderVolumeCard();
+            renderStreamingCard();
             renderQueueSummary();
             renderQueueTab();
         }
@@ -876,8 +931,10 @@
                     <div class="sub">🎤 ${escapeHtml(current.author || 'Auteur inconnu')}</div>
                     <div class="sub">📦 ${escapeHtml(current.owner)} · 🙋 ${escapeHtml(current.requested_by)}</div>
                     ${current.loop_mode ? '<div class="sub">🔁 Boucle</div>' : ''}
-                    ${(current.can_stop || current.can_skip) ? `
+                    ${current.is_paused ? '<div class="sub">⏸️ En pause</div>' : ''}
+                    ${(current.can_stop || current.can_skip || current.can_pause) ? `
                         <div class="track-actions" style="margin-top:10px;">
+                            ${current.can_pause ? `<button class="btn-secondary" onclick="pauseCurrent(${current.is_paused ? 'false' : 'true'})">${current.is_paused ? '▶️ Reprendre' : '⏸️ Pause'}</button>` : ''}
                             ${current.can_skip ? '<button class="btn-admin" onclick="skipCurrent()">⏭️ Passer</button>' : ''}
                             ${current.can_stop ? '<button class="btn-danger" onclick="stopPlayback()">⏹️ Arreter</button>' : ''}
                         </div>
@@ -891,15 +948,31 @@
             if (!root) {
                 return;
             }
+            const section = document.getElementById('volume-section');
             if (!playerState.can_set_volume) {
+                if (section && !isAdmin) {
+                    section.style.display = 'none';
+                    root.innerHTML = '';
+                    return;
+                }
+                if (section) {
+                    section.style.display = '';
+                }
                 root.innerHTML = '<div class="sub">Le backend audio actuel ne permet pas de regler le volume depuis le web.</div>';
                 return;
             }
+            if (section) {
+                section.style.display = '';
+            }
             const volume = Number(playerState.volume ?? 0);
+            const featureEnabled = Boolean(playerState.features && playerState.features.user_volume_control);
+            const accessText = isAdmin
+                ? (featureEnabled ? 'Les membres peuvent aussi le regler.' : 'Reserve aux admins pour le moment.')
+                : 'Active par les admins pour les membres.';
             root.innerHTML = `
                 <div>
                     <strong>🔊 Volume web</strong>
-                    <div class="sub">Pilotage du son global depuis l'interface admin.</div>
+                    <div class="sub">Pilotage du son global. ${accessText}</div>
                 </div>
                 <div class="volume-row">
                     <input id="volume-slider" type="range" min="0" max="100" step="1" value="${volume}" aria-label="Volume">
@@ -919,6 +992,44 @@
             });
         }
 
+        function renderStreamingCard() {
+            const section = document.getElementById('streaming-section');
+            if (!section) {
+                return;
+            }
+            const features = playerState.features || {};
+            const platforms = (playerState.streaming_platforms || []).filter((platform) => platform.available);
+            const canSearchMusic = Boolean(features.user_music_search || isAdmin);
+            if (!platforms.length && !canSearchMusic) {
+                section.style.display = 'none';
+                return;
+            }
+            section.style.display = '';
+            const badges = [
+                ...platforms.map((platform) => platform.label),
+                ...(canSearchMusic ? ['Recherche'] : [])
+            ];
+            document.getElementById('streaming-platforms').innerHTML = badges
+                .map((label) => `<span class="tiny-pill">${escapeHtml(label)}</span>`)
+                .join('');
+            const input = document.getElementById('streaming-url');
+            if (canSearchMusic && platforms.length) {
+                input.placeholder = 'Coller une URL ou chercher un titre';
+            } else if (canSearchMusic) {
+                input.placeholder = 'Chercher un titre';
+            } else {
+                input.placeholder = 'Coller une URL autorisee';
+            }
+            document.getElementById('streaming-hint').textContent = canSearchMusic
+                ? 'Colle un lien ou tape un titre a chercher.'
+                : 'Colle un lien autorise et envoie-le dans la file.';
+            const karaokeRow = document.getElementById('streaming-karaoke-row');
+            const subtitlesEnabled = Boolean(features.now_playing_subtitles);
+            if (karaokeRow) {
+                karaokeRow.classList.toggle('open', subtitlesEnabled);
+            }
+        }
+
         function renderQuota() {
             const root = document.getElementById('quota-row');
             root.innerHTML = `
@@ -928,10 +1039,11 @@
         }
 
         function renderPanels() {
+            const sharedLibrary = Boolean(playerState.features && playerState.features.shared_user_library);
             renderTrackPanel(
                 'tab-library',
                 '🎵 Sons',
-                'Catalogue partage, sans doublons.',
+                sharedLibrary ? 'Bibliotheque partagee des membres, sans doublons.' : 'Votre bibliotheque, sans doublons.',
                 dashboard.tracks || []
             );
             renderTrackPanel(
@@ -953,6 +1065,7 @@
             renderQuota();
             renderCurrentCard();
             renderVolumeCard();
+            renderStreamingCard();
             renderQueueSummary();
             renderTabs();
             renderPanels();
@@ -1023,6 +1136,15 @@
         async function stopPlayback() {
             try {
                 await postJson('{{ url_for("stop_playback") }}');
+                await refreshState();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function pauseCurrent(paused) {
+            try {
+                await postJson('{{ url_for("pause_playback") }}', { paused });
                 await refreshState();
             } catch (error) {
                 alert(error.message);
@@ -1115,6 +1237,34 @@
         async function enqueueFavorites(loopMode) {
             try {
                 await postJson('{{ url_for("enqueue_favorites") }}', { loop_mode: loopMode });
+                await refreshState();
+                setTab('queue');
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        async function enqueueStream(event, loopMode = false) {
+            event.preventDefault();
+            const input = document.getElementById('streaming-url');
+            const value = (input.value || '').trim();
+            const karaokeInput = document.getElementById('streaming-karaoke-mode');
+            const karaokeMode = Boolean(karaokeInput && karaokeInput.checked);
+            if (!value) {
+                alert('URL ou recherche manquante.');
+                return;
+            }
+            const looksLikeUrl = /^https?:\/\//i.test(value);
+            const endpoint = looksLikeUrl ? '{{ url_for("enqueue_stream") }}' : '{{ url_for("search_enqueue_stream") }}';
+            const payload = looksLikeUrl
+                ? { url: value, loop_mode: loopMode, karaoke_mode: karaokeMode }
+                : { query: value, loop_mode: loopMode, karaoke_mode: karaokeMode };
+            try {
+                await postJson(endpoint, payload);
+                input.value = '';
+                if (karaokeInput) {
+                    karaokeInput.checked = false;
+                }
                 await refreshState();
                 setTab('queue');
             } catch (error) {

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fonctionnalites - {{ app_name }}</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at top left, rgba(0,243,255,0.18), transparent 25%),
+                linear-gradient(145deg, #05070d, #0a0a12 60%, #07101b);
+            color: #edf4fb;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+        .shell {
+            width: min(1000px, 100%);
+            margin: 0 auto;
+            display: grid;
+            gap: 18px;
+        }
+        .panel {
+            padding: 24px;
+            border-radius: 24px;
+            background: rgba(9, 17, 29, 0.96);
+            border: 1px solid rgba(0,243,255,0.24);
+            box-shadow: 0 0 10px rgba(0,243,255,0.28), 0 24px 60px rgba(0,0,0,0.42);
+        }
+        .header, .actions, .feature-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+        }
+        h1, h2 {
+            margin: 0;
+            color: #00f3ff;
+            text-shadow: 0 0 10px #00f3ff;
+        }
+        .sub {
+            color: #9db0c3;
+            margin-top: 6px;
+            line-height: 1.45;
+        }
+        .feature-row {
+            padding: 18px 0;
+            border-top: 1px solid rgba(0,243,255,0.12);
+        }
+        .feature-row:first-of-type {
+            border-top: 0;
+            padding-top: 0;
+        }
+        .badge, button, a {
+            border-radius: 14px;
+            padding: 12px 14px;
+            border: 0;
+            box-sizing: border-box;
+            font-size: 0.95rem;
+            text-decoration: none;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0,243,255,0.08);
+            border: 1px solid rgba(0,243,255,0.18);
+            color: #edf4fb;
+            font-size: 0.82rem;
+        }
+        button, .btn {
+            cursor: pointer;
+            font-weight: 700;
+            color: #03151b;
+            background: #00f3ff;
+            box-shadow: 0 0 10px #00f3ff;
+        }
+        .btn-secondary {
+            background: rgba(0,243,255,0.08);
+            color: #edf4fb;
+            border: 1px solid rgba(0,243,255,0.18);
+            box-shadow: none;
+        }
+        .toggle {
+            min-width: 138px;
+        }
+        .toggle.is-off {
+            background: rgba(255,92,138,0.18);
+            color: #ffd7e3;
+            border: 1px solid rgba(255,92,138,0.26);
+            box-shadow: none;
+        }
+        .status {
+            min-width: 96px;
+            justify-content: center;
+            color: #b9ffe9;
+            border-color: rgba(125,247,207,0.24);
+            background: rgba(125,247,207,0.12);
+        }
+        .status.is-off {
+            color: #ffd7e3;
+            border-color: rgba(255,92,138,0.26);
+            background: rgba(255,92,138,0.12);
+        }
+        .alert {
+            display: none;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(0,243,255,0.08);
+            border: 1px solid rgba(0,243,255,0.18);
+            color: #c9d9e8;
+        }
+        .alert.open {
+            display: block;
+        }
+        .footer-note {
+            color: #9db0c3;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <section class="panel">
+            <div class="header">
+                <div>
+                    <h1>Fonctionnalites</h1>
+                    <div class="sub">Active ou coupe les options disponibles pour les membres.</div>
+                </div>
+                <div class="actions">
+                    <span class="badge">Connecte en tant que {{ user.username }}</span>
+                    <a class="btn btn-secondary" href="{{ url_for('admin_panel') }}">Utilisateurs</a>
+                    <a class="btn btn-secondary" href="{{ url_for('index') }}">Retour</a>
+                </div>
+            </div>
+        </section>
+
+        <div id="message" class="alert"></div>
+
+        <section class="panel">
+            <h2>Acces membres</h2>
+            <div class="sub" style="margin-bottom: 18px;">Les interfaces ouvertes se mettent a jour automatiquement en quelques secondes.</div>
+
+            {% for feature in features %}
+                <div class="feature-row" data-feature-key="{{ feature.key }}" data-enabled="{{ 'true' if feature.enabled else 'false' }}">
+                    <div>
+                        <strong>{{ feature.label }}</strong>
+                        <div class="sub">{{ feature.description }}</div>
+                    </div>
+                    <div class="actions">
+                        <span class="badge status {{ '' if feature.enabled else 'is-off' }}">{{ 'Active' if feature.enabled else 'Coupee' }}</span>
+                        <button class="toggle {{ '' if feature.enabled else 'is-off' }}" type="button" onclick="toggleFeature('{{ feature.key }}')">
+                            {{ 'Desactiver' if feature.enabled else 'Activer' }}
+                        </button>
+                    </div>
+                </div>
+            {% endfor %}
+        </section>
+
+        <footer class="footer-note">{{ footer_credit }}</footer>
+    </div>
+
+    <script>
+        function showMessage(text) {
+            const message = document.getElementById('message');
+            message.textContent = text;
+            message.classList.add('open');
+            window.clearTimeout(showMessage.timer);
+            showMessage.timer = window.setTimeout(() => message.classList.remove('open'), 3200);
+        }
+
+        function applyFeatureState(row, enabled) {
+            row.dataset.enabled = enabled ? 'true' : 'false';
+            const status = row.querySelector('.status');
+            const button = row.querySelector('.toggle');
+            status.textContent = enabled ? 'Active' : 'Coupee';
+            button.textContent = enabled ? 'Desactiver' : 'Activer';
+            status.classList.toggle('is-off', !enabled);
+            button.classList.toggle('is-off', !enabled);
+        }
+
+        async function toggleFeature(key) {
+            const row = document.querySelector(`[data-feature-key="${key}"]`);
+            if (!row) return;
+            const nextEnabled = row.dataset.enabled !== 'true';
+            const button = row.querySelector('.toggle');
+            button.disabled = true;
+            try {
+                const response = await fetch(`/admin/features/${key}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: nextEnabled })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.message || `Erreur ${response.status}`);
+                }
+                applyFeatureState(row, Boolean(data.feature.enabled));
+                showMessage(data.message || 'Fonctionnalite mise a jour.');
+            } catch (error) {
+                showMessage(error.message);
+            } finally {
+                button.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

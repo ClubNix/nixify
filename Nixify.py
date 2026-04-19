@@ -1,5 +1,6 @@
 import datetime
 import hashlib
+import html
 import json
 import mimetypes
 import os
@@ -14,10 +15,12 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import deque
 from pathlib import Path
+from xml.etree import ElementTree
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
@@ -63,6 +66,84 @@ DISCORD_EMBED_COLOR = int("00f3ff", 16)
 DISCORD_FOOTER_TEXT = "Propulsé par Nixify - Dev by Ofwood"
 DISCORD_HTTP_USER_AGENT = "Mozilla/5.0 Nixify/1.0"
 PUBLIC_BASE_URL = os.environ.get("NIXIFY_PUBLIC_BASE_URL", "").strip().rstrip("/")
+FEATURE_USER_VOLUME_CONTROL = "user_volume_control"
+FEATURE_STREAMING_YOUTUBE = "streaming_youtube"
+FEATURE_STREAMING_SOUNDCLOUD = "streaming_soundcloud"
+FEATURE_STREAMING_DEEZER = "streaming_deezer"
+FEATURE_STREAMING_SPOTIFY = "streaming_spotify"
+FEATURE_USER_PAUSE_CONTROL = "user_pause_control"
+FEATURE_NOW_PLAYING_SUBTITLES = "now_playing_subtitles"
+FEATURE_USER_MUSIC_SEARCH = "user_music_search"
+FEATURE_SHARED_USER_LIBRARY = "shared_user_library"
+FEATURE_DEFINITIONS = {
+    FEATURE_USER_VOLUME_CONTROL: {
+        "label": "Controle du volume pour les membres",
+        "description": "Permet aux utilisateurs non-admins de regler le volume global depuis leur interface.",
+        "default": False,
+    },
+    FEATURE_STREAMING_YOUTUBE: {
+        "label": "Streaming YouTube",
+        "description": "Permet aux membres d'ajouter une URL YouTube directement dans la file.",
+        "default": False,
+    },
+    FEATURE_STREAMING_SOUNDCLOUD: {
+        "label": "Streaming SoundCloud",
+        "description": "Permet aux membres d'ajouter une URL SoundCloud directement dans la file.",
+        "default": False,
+    },
+    FEATURE_STREAMING_DEEZER: {
+        "label": "Streaming Deezer",
+        "description": "Affiche Deezer dans les sources autorisees. La lecture depend de ce que yt-dlp peut extraire.",
+        "default": False,
+    },
+    FEATURE_STREAMING_SPOTIFY: {
+        "label": "Streaming Spotify",
+        "description": "Affiche Spotify dans les sources autorisees. La lecture depend de ce que yt-dlp peut extraire.",
+        "default": False,
+    },
+    FEATURE_USER_PAUSE_CONTROL: {
+        "label": "Pause pour les membres",
+        "description": "Permet aux utilisateurs non-admins de mettre en pause ou reprendre la lecture en cours.",
+        "default": False,
+    },
+    FEATURE_NOW_PLAYING_SUBTITLES: {
+        "label": "Sous-titres karaoke sur l'ecran public",
+        "description": "Affiche les sous-titres detectes par yt-dlp sur /now-playing quand un stream en fournit.",
+        "default": False,
+    },
+    FEATURE_USER_MUSIC_SEARCH: {
+        "label": "Recherche de musique pour les membres",
+        "description": "Permet aux membres de chercher un titre et de l'envoyer dans la file sans coller d'URL.",
+        "default": False,
+    },
+    FEATURE_SHARED_USER_LIBRARY: {
+        "label": "Bibliotheque des autres membres",
+        "description": "Permet aux membres de voir et lancer les morceaux des autres utilisateurs.",
+        "default": False,
+    },
+}
+STREAMING_PLATFORM_DEFINITIONS = {
+    "youtube": {
+        "label": "YouTube",
+        "feature_key": FEATURE_STREAMING_YOUTUBE,
+        "domains": ("youtube.com", "youtu.be", "music.youtube.com"),
+    },
+    "soundcloud": {
+        "label": "SoundCloud",
+        "feature_key": FEATURE_STREAMING_SOUNDCLOUD,
+        "domains": ("soundcloud.com",),
+    },
+    "deezer": {
+        "label": "Deezer",
+        "feature_key": FEATURE_STREAMING_DEEZER,
+        "domains": ("deezer.com",),
+    },
+    "spotify": {
+        "label": "Spotify",
+        "feature_key": FEATURE_STREAMING_SPOTIFY,
+        "domains": ("spotify.com", "open.spotify.com"),
+    },
+}
 
 app = Flask(__name__)
 app.secret_key = DEFAULT_SECRET_KEY
@@ -97,6 +178,8 @@ library_sync_inflight = set()
 local_ip_lock = threading.Lock()
 cached_local_ip = None
 cached_local_ip_score = -1
+subtitle_cache = {}
+subtitle_cache_lock = threading.Lock()
 
 
 def ensure_directory(path):
@@ -136,6 +219,119 @@ def generate_temporary_password(length=12):
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def normalize_feature_enabled(value):
+    return str(value or "").strip().lower() in {"1", "true", "on", "yes", "enabled"}
+
+
+def fetch_feature_flags():
+    flags = {
+        key: {
+            "key": key,
+            "label": definition["label"],
+            "description": definition["description"],
+            "enabled": bool(definition.get("default")),
+        }
+        for key, definition in FEATURE_DEFINITIONS.items()
+    }
+    try:
+        with get_db_connection() as conn:
+            rows = conn.execute("SELECT key, enabled FROM feature_flags").fetchall()
+    except sqlite3.Error:
+        return list(flags.values())
+
+    for row in rows:
+        key = row["key"]
+        if key in flags:
+            flags[key]["enabled"] = bool(row["enabled"])
+    return list(flags.values())
+
+
+def feature_flags_map():
+    return {item["key"]: item["enabled"] for item in fetch_feature_flags()}
+
+
+def feature_enabled(key):
+    definition = FEATURE_DEFINITIONS.get(key)
+    if not definition:
+        return False
+    try:
+        with get_db_connection() as conn:
+            row = conn.execute("SELECT enabled FROM feature_flags WHERE key = ?", (key,)).fetchone()
+    except sqlite3.Error:
+        return bool(definition.get("default"))
+    if not row:
+        return bool(definition.get("default"))
+    return bool(row["enabled"])
+
+
+def set_feature_enabled(key, enabled):
+    if key not in FEATURE_DEFINITIONS:
+        raise KeyError(key)
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO feature_flags (key, enabled, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET
+                enabled = excluded.enabled,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (key, 1 if enabled else 0),
+        )
+        conn.commit()
+
+
+def detect_streaming_platform(url):
+    parsed = urllib.parse.urlparse((url or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    host = parsed.netloc.lower().split("@")[-1].split(":", 1)[0]
+    if host.startswith("www."):
+        host = host[4:]
+
+    for platform_key, definition in STREAMING_PLATFORM_DEFINITIONS.items():
+        for domain in definition["domains"]:
+            normalized_domain = domain.lower()
+            if host == normalized_domain or host.endswith(f".{normalized_domain}"):
+                return platform_key
+    return None
+
+
+def user_can_stream_platform(user, platform_key):
+    platform = STREAMING_PLATFORM_DEFINITIONS.get(platform_key)
+    return bool(
+        user
+        and platform
+        and (
+            user.is_admin
+            or feature_enabled(platform["feature_key"])
+            or (platform_key == "youtube" and feature_enabled(FEATURE_USER_MUSIC_SEARCH))
+        )
+    )
+
+
+def user_can_search_music(user):
+    return bool(user and (user.is_admin or feature_enabled(FEATURE_USER_MUSIC_SEARCH)))
+
+
+def streaming_platforms_for_user(user):
+    flags = feature_flags_map()
+    platforms = []
+    for platform_key, definition in STREAMING_PLATFORM_DEFINITIONS.items():
+        feature_key = definition["feature_key"]
+        enabled_for_users = bool(flags.get(feature_key, False))
+        platforms.append(
+            {
+                "key": platform_key,
+                "label": definition["label"],
+                "feature_key": feature_key,
+                "enabled": enabled_for_users,
+                "available": bool(user and (user.is_admin or enabled_for_users)),
+            }
+        )
+    return platforms
+
+
 def ensure_column(cursor, table_name, column_name, ddl):
     cursor.execute(f"PRAGMA table_info({table_name})")
     columns = {row[1] for row in cursor.fetchall()}
@@ -147,6 +343,15 @@ def init_db():
     ensure_directory(COOKIES_DIR)
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS feature_flags (
+                key TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -257,6 +462,12 @@ def init_db():
             for user_id, username in cursor.execute("SELECT id, username FROM users").fetchall():
                 if username.lower() in admin_usernames:
                     cursor.execute("UPDATE users SET role = 'admin' WHERE id = ?", (user_id,))
+
+        for key, definition in FEATURE_DEFINITIONS.items():
+            cursor.execute(
+                "INSERT OR IGNORE INTO feature_flags (key, enabled) VALUES (?, ?)",
+                (key, 1 if definition.get("default") else 0),
+            )
 
         conn.commit()
 
@@ -665,7 +876,7 @@ def catalog_track_priority(payload, viewer):
 def fetch_visible_tracks(viewer):
     where_clause = ""
     query_params = [viewer.id]
-    if not viewer.is_admin:
+    if not viewer.is_admin and not feature_enabled(FEATURE_SHARED_USER_LIBRARY):
         where_clause = "WHERE t.user_id = ?"
         query_params.append(viewer.id)
 
@@ -1548,10 +1759,22 @@ class PlaybackBackend:
     def get_volume(self):
         return None
 
+    supports_pause = False
+
+    def pause(self):
+        return False
+
+    def resume(self):
+        return False
+
+    def is_paused(self):
+        return False
+
 
 class VLCPlaybackBackend(PlaybackBackend):
     name = "python-vlc"
     supports_web_volume = True
+    supports_pause = True
 
     def __init__(self):
         self.instance = vlc.Instance("--no-video") if vlc else None
@@ -1584,6 +1807,32 @@ class VLCPlaybackBackend(PlaybackBackend):
         except Exception:
             return None
         return value if value is not None and value >= 0 else None
+
+    def pause(self):
+        if not self.player:
+            return False
+        try:
+            self.player.set_pause(1)
+            return True
+        except Exception:
+            return False
+
+    def resume(self):
+        if not self.player:
+            return False
+        try:
+            self.player.set_pause(0)
+            return True
+        except Exception:
+            return False
+
+    def is_paused(self):
+        if not self.player:
+            return False
+        try:
+            return self.player.get_state() == vlc.State.Paused
+        except Exception:
+            return False
 
     def wait_until_end(self, stop_event):
         if not self.player:
@@ -1715,6 +1964,23 @@ class JukeboxPlayer:
             return True, None
         return False, f"Le backend {self.backend_name} ne permet pas de regler le volume depuis le web."
 
+    def set_paused(self, paused):
+        with self.condition:
+            if not self.current:
+                return False, "Aucune lecture en cours."
+            if not self.backend or not getattr(self.backend, "supports_pause", False):
+                return False, f"Le backend {self.backend_name} ne permet pas de mettre en pause depuis le web."
+            applied = self.backend.pause() if paused else self.backend.resume()
+            if not applied:
+                return False, "Changement de pause impossible."
+            self.condition.notify_all()
+        return True, None
+
+    def is_paused(self):
+        if not self.backend or not getattr(self.backend, "supports_pause", False):
+            return False
+        return bool(self.backend.is_paused())
+
     def enqueue(self, track, play_now=False, play_next=False):
         return self.enqueue_many([track], play_now=play_now, play_next=play_next)
 
@@ -1778,7 +2044,7 @@ class JukeboxPlayer:
             return
         if track.get("track_id") in self.deleted_track_ids:
             return
-        if not os.path.exists(track["abs_path"]):
+        if not track.get("streaming") and not os.path.exists(track["abs_path"]):
             return
         self._append_track_locked(track)
 
@@ -2048,6 +2314,8 @@ class JukeboxPlayer:
                 or current.get("owner_id") == viewer.id
             )
             current["can_skip"] = self._viewer_can_skip_locked(viewer, preview_entries)
+            current["can_pause"] = user_can_pause(viewer)
+            current["is_paused"] = self.is_paused()
         return {
             "backend": self.backend_name,
             "current": current,
@@ -2055,9 +2323,11 @@ class JukeboxPlayer:
             "last_error": self.last_error,
             "queue_limit": self.queue_limit,
             "volume": self.volume,
-            "can_set_volume": bool(
-                viewer and viewer.is_admin and self.backend and getattr(self.backend, "supports_web_volume", False)
-            ),
+            "is_paused": self.is_paused(),
+            "can_pause": user_can_pause(viewer),
+            "can_set_volume": user_can_set_volume(viewer),
+            "features": feature_flags_map(),
+            "streaming_platforms": streaming_platforms_for_user(viewer),
         }
 
     def now_playing_state(self):
@@ -2099,6 +2369,10 @@ class JukeboxPlayer:
             "elapsed_seconds": round(elapsed_ms / 1000, 2) if elapsed_ms is not None else None,
             "remaining_seconds": round(remaining_ms / 1000, 2) if remaining_ms is not None else None,
             "backend": self.backend_name,
+            "is_paused": self.is_paused(),
+            "karaoke_mode": bool(current.get("karaoke_mode")),
+            "subtitles_enabled": feature_enabled(FEATURE_NOW_PLAYING_SUBTITLES),
+            "subtitles": subtitles_for_track(current),
         }
 
 
@@ -2150,6 +2424,300 @@ def build_track_payload_for_user(user, rel_path, loop_mode=False):
     if not row:
         raise FileNotFoundError(rel_path)
     return build_track_payload_from_row(row, user.username, loop_mode=loop_mode)
+
+
+def select_streaming_audio_url(info):
+    direct_url = info.get("url")
+    if direct_url and info.get("protocol") != "mhtml":
+        return direct_url
+
+    formats = info.get("formats") or []
+    audio_formats = [
+        item
+        for item in formats
+        if item.get("url") and item.get("acodec") not in (None, "none") and item.get("protocol") != "mhtml"
+    ]
+    if not audio_formats:
+        return None
+
+    def stream_score(item):
+        abr = item.get("abr") or item.get("tbr") or 0
+        preference = item.get("preference") or 0
+        return (preference, abr)
+
+    return max(audio_formats, key=stream_score).get("url")
+
+
+def normalized_language_code(value):
+    return str(value or "").strip().lower().replace("_", "-")
+
+
+def subtitle_entry_score(entry, preferred_language=None):
+    ext = (entry.get("ext") or "").lower()
+    language = normalized_language_code(entry.get("language") or entry.get("lang"))
+    preferred = normalized_language_code(preferred_language)
+    base_language = language.split("-", 1)[0]
+    preferred_base = preferred.split("-", 1)[0]
+    language_score = 1
+    if preferred and language == preferred:
+        language_score = 5
+    elif preferred_base and base_language == preferred_base:
+        language_score = 4
+    elif "-orig" in language or language.endswith(".orig"):
+        language_score = 3
+    elif "-" not in language:
+        language_score = 2
+    return (
+        language_score,
+        1 if not entry.get("automatic") else 0,
+        3 if ext == "json3" else 2 if ext in {"vtt", "webvtt"} else 1 if ext.startswith("srv") else 0,
+    )
+
+
+def select_streaming_subtitle_candidates(info):
+    candidates = []
+    preferred_language = (
+        info.get("language")
+        or info.get("original_language")
+        or info.get("requested_subtitles_language")
+    )
+    for source_name in ("subtitles", "automatic_captions"):
+        source = info.get(source_name) or {}
+        for language, entries in source.items():
+            for entry in entries or []:
+                if not entry.get("url"):
+                    continue
+                item = dict(entry)
+                item["language"] = language
+                item["automatic"] = source_name == "automatic_captions"
+                candidates.append(item)
+    return sorted(candidates, key=lambda item: subtitle_entry_score(item, preferred_language), reverse=True)[:8]
+
+
+def seconds_from_timestamp(value):
+    parts = str(value or "").strip().replace(",", ".").split(":")
+    try:
+        total = 0.0
+        for part in parts:
+            total = (total * 60) + float(part)
+        return total
+    except Exception:
+        return None
+
+
+def parse_vtt_subtitles(text):
+    cues = []
+    blocks = re.split(r"\n\s*\n", text.replace("\r\n", "\n").replace("\r", "\n"))
+    for block in blocks:
+        lines = [line.strip() for line in block.split("\n") if line.strip()]
+        timing_index = next((index for index, line in enumerate(lines) if "-->" in line), None)
+        if timing_index is None:
+            continue
+        start_raw, end_raw = lines[timing_index].split("-->", 1)
+        start = seconds_from_timestamp(start_raw.split()[0])
+        end = seconds_from_timestamp(end_raw.split()[0])
+        if start is None or end is None:
+            continue
+        text_lines = [
+            re.sub(r"<[^>]+>", "", line)
+            for line in lines[timing_index + 1:]
+            if not line.startswith(("NOTE", "STYLE"))
+        ]
+        cue_text = html.unescape(" ".join(text_lines)).strip()
+        if cue_text:
+            cues.append({"start": start, "end": end, "text": cue_text})
+    return cues
+
+
+def parse_json3_subtitles(text):
+    cues = []
+    data = json.loads(text)
+    for event in data.get("events") or []:
+        segments = event.get("segs") or []
+        cue_text = html.unescape("".join(segment.get("utf8", "") for segment in segments)).strip()
+        if not cue_text:
+            continue
+        start = float(event.get("tStartMs") or 0) / 1000
+        duration = float(event.get("dDurationMs") or 1800) / 1000
+        cues.append({"start": start, "end": start + duration, "text": cue_text})
+    return cues
+
+
+def parse_xml_subtitles(text):
+    cues = []
+    root = ElementTree.fromstring(text)
+    for node in root.iter():
+        if node.tag.split("}")[-1] != "text":
+            continue
+        try:
+            start = float(node.attrib.get("start", "0"))
+            duration = float(node.attrib.get("dur", "1.8"))
+        except Exception:
+            continue
+        cue_text = html.unescape("".join(node.itertext())).strip()
+        if cue_text:
+            cues.append({"start": start, "end": start + duration, "text": cue_text})
+    return cues
+
+
+def fetch_subtitle_cues(candidate):
+    url = candidate.get("url")
+    if not url:
+        return []
+    cache_key = hashlib.sha1(url.encode("utf-8")).hexdigest()
+    with subtitle_cache_lock:
+        if cache_key in subtitle_cache:
+            return subtitle_cache[cache_key]
+
+    request_obj = urllib.request.Request(url, headers={"User-Agent": DISCORD_HTTP_USER_AGENT})
+    with urllib.request.urlopen(request_obj, timeout=6) as response:
+        text = response.read(2 * 1024 * 1024).decode("utf-8", errors="replace")
+
+    ext = (candidate.get("ext") or "").lower()
+    try:
+        if ext == "json3" or text.lstrip().startswith("{"):
+            cues = parse_json3_subtitles(text)
+        elif ext.startswith("srv") or text.lstrip().startswith("<"):
+            cues = parse_xml_subtitles(text)
+        else:
+            cues = parse_vtt_subtitles(text)
+    except Exception as exc:
+        print(f"[WARN] Sous-titres illisibles: {exc}")
+        cues = []
+
+    cues = cues[:1200]
+    with subtitle_cache_lock:
+        subtitle_cache[cache_key] = cues
+    return cues
+
+
+def subtitles_for_track(track):
+    if not track or not feature_enabled(FEATURE_NOW_PLAYING_SUBTITLES):
+        return []
+    for candidate in track.get("subtitle_candidates") or []:
+        try:
+            cues = fetch_subtitle_cues(candidate)
+        except Exception as exc:
+            print(f"[WARN] Sous-titres indisponibles: {exc}")
+            cues = []
+        if cues:
+            return cues
+    return []
+
+
+def build_streaming_track_payload(user, source_url, loop_mode=False, karaoke_mode=False):
+    source_url = (source_url or "").strip()
+    platform_key = detect_streaming_platform(source_url)
+    if not platform_key:
+        raise ValueError("URL de streaming non supportee.")
+    if not user_can_stream_platform(user, platform_key):
+        platform_label = STREAMING_PLATFORM_DEFINITIONS[platform_key]["label"]
+        raise PermissionError(f"Streaming {platform_label} desactive pour votre compte.")
+
+    platform_label = STREAMING_PLATFORM_DEFINITIONS[platform_key]["label"]
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "geo_bypass": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["all"],
+    }
+    node_path = shutil.which("node") or shutil.which("nodejs")
+    if node_path:
+        ydl_opts["javascript_executor"] = node_path
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(source_url, download=False)
+    except Exception as exc:
+        raise RuntimeError(f"Extraction {platform_label} impossible: {exc}") from exc
+
+    if not info:
+        raise RuntimeError(f"Extraction {platform_label} impossible.")
+    if info.get("_type") == "playlist":
+        entries = [entry for entry in (info.get("entries") or []) if entry]
+        if not entries:
+            raise RuntimeError("Playlist vide ou inaccessible.")
+        info = entries[0]
+
+    stream_url = select_streaming_audio_url(info)
+    if not stream_url:
+        raise RuntimeError(f"Aucun flux audio jouable trouve pour {platform_label}.")
+
+    title = info.get("track") or info.get("title") or f"Stream {platform_label}"
+    author = info.get("artist") or info.get("uploader") or info.get("channel") or platform_label
+    duration = info.get("duration")
+    try:
+        duration = float(duration) if duration is not None else None
+    except Exception:
+        duration = None
+
+    webpage_url = info.get("webpage_url") or source_url
+    return {
+        "track_id": None,
+        "owner_id": user.id,
+        "owner": user.username,
+        "requested_by": user.username,
+        "rel_path": webpage_url,
+        "abs_path": stream_url,
+        "nom": title,
+        "author": author,
+        "category": f"Streaming {platform_label}",
+        "thumbnail_path": None,
+        "public_thumbnail_url": info.get("thumbnail"),
+        "duration": duration,
+        "cover_url": info.get("thumbnail"),
+        "loop_mode": bool(loop_mode),
+        "karaoke_mode": bool(karaoke_mode),
+        "streaming": True,
+        "source_url": webpage_url,
+        "platform": platform_key,
+        "platform_label": platform_label,
+        "subtitle_candidates": select_streaming_subtitle_candidates(info),
+    }
+
+
+def build_search_track_payload(user, query, loop_mode=False, karaoke_mode=False):
+    query = re.sub(r"\s+", " ", str(query or "")).strip()
+    if not query:
+        raise ValueError("Recherche vide.")
+    if not user_can_search_music(user):
+        raise PermissionError("Recherche de musique desactivee pour votre compte.")
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "geo_bypass": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["all"],
+    }
+    node_path = shutil.which("node") or shutil.which("nodejs")
+    if node_path:
+        ydl_opts["javascript_executor"] = node_path
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+    except Exception as exc:
+        raise RuntimeError(f"Recherche impossible: {exc}") from exc
+
+    entries = [entry for entry in (info or {}).get("entries") or [] if entry]
+    if not entries:
+        raise RuntimeError("Aucun resultat trouve.")
+
+    result = entries[0]
+    source_url = result.get("webpage_url") or result.get("original_url") or result.get("url")
+    if not source_url:
+        raise RuntimeError("Resultat de recherche inexploitable.")
+    return build_streaming_track_payload(user, source_url, loop_mode=loop_mode, karaoke_mode=karaoke_mode)
 
 
 def update_sync_status(user_id, **data):
@@ -2331,6 +2899,31 @@ def require_admin():
         abort(403)
 
 
+def user_can_set_volume(user):
+    return bool(
+        user
+        and (
+            user.is_admin
+            or feature_enabled(FEATURE_USER_VOLUME_CONTROL)
+        )
+        and jukebox.backend
+        and getattr(jukebox.backend, "supports_web_volume", False)
+    )
+
+
+def user_can_pause(user):
+    return bool(
+        user
+        and (
+            user.is_admin
+            or feature_enabled(FEATURE_USER_PAUSE_CONTROL)
+        )
+        and jukebox.current
+        and jukebox.backend
+        and getattr(jukebox.backend, "supports_pause", False)
+    )
+
+
 def fetch_admin_users():
     with get_db_connection() as conn:
         rows = conn.execute(
@@ -2464,6 +3057,51 @@ def admin_panel():
     )
 
 
+@app.route("/admin/features")
+@login_required
+def admin_features_panel():
+    require_admin()
+    return render_template(
+        "admin_features.html",
+        app_name=APP_NAME,
+        user=User.get(current_user.id),
+        features=fetch_feature_flags(),
+        footer_credit=FOOTER_CREDIT,
+    )
+
+
+@app.route("/admin/features/<feature_key>", methods=["POST"])
+@login_required
+def admin_update_feature(feature_key):
+    require_admin()
+    if feature_key not in FEATURE_DEFINITIONS:
+        return jsonify({"status": "error", "message": "Fonctionnalite introuvable."}), 404
+
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        enabled = bool(payload.get("enabled"))
+        wants_json = True
+    else:
+        enabled = normalize_feature_enabled(request.form.get("enabled"))
+        wants_json = False
+
+    set_feature_enabled(feature_key, enabled)
+    feature = next(item for item in fetch_feature_flags() if item["key"] == feature_key)
+    message = f"{feature['label']} {'activee' if enabled else 'desactivee'}."
+
+    if wants_json:
+        return jsonify({"status": "ok", "message": message, "feature": feature})
+
+    flash(message, "success")
+    return redirect(url_for("admin_features_panel"))
+
+
+@app.route("/feature_flags")
+@login_required
+def feature_flags():
+    return jsonify({"features": fetch_feature_flags(), "player_state": jukebox.snapshot(User.get(current_user.id))})
+
+
 @app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
 @login_required
 def admin_delete_user(user_id):
@@ -2529,6 +3167,39 @@ def admin_reset_password(user_id):
         flash(f"Mot de passe temporaire pour {target.username}: {new_password}", "success")
     else:
         flash(f"Mot de passe mis a jour pour {target.username}.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/users/<int:user_id>/role", methods=["POST"])
+@login_required
+def admin_update_user_role(user_id):
+    require_admin()
+    target = User.get(user_id)
+    if not target:
+        flash("Utilisateur introuvable.", "error")
+        return redirect(url_for("admin_panel"))
+
+    requested_role = (request.form.get("role") or "").strip().lower()
+    if requested_role not in {"admin", "user"}:
+        flash("Role demande invalide.", "error")
+        return redirect(url_for("admin_panel"))
+
+    if target.id == current_user.id and requested_role != "admin":
+        flash("Vous ne pouvez pas retirer vos propres droits admin depuis ce panneau.", "error")
+        return redirect(url_for("admin_panel"))
+
+    if is_reserved_username(target.username) and requested_role != "admin":
+        flash("Le compte admin reserve doit garder le role admin.", "error")
+        return redirect(url_for("admin_panel"))
+
+    with get_db_connection() as conn:
+        conn.execute("UPDATE users SET role = ? WHERE id = ?", (requested_role, target.id))
+        conn.commit()
+
+    if requested_role == "admin":
+        flash(f"{target.username} est maintenant admin.", "success")
+    else:
+        flash(f"{target.username} est repasse en membre standard.", "success")
     return redirect(url_for("admin_panel"))
 
 
@@ -2739,6 +3410,77 @@ def enqueue_track():
     return jsonify({"status": "ok", "message": "Ajoute a la file d'attente." if not loop_mode else "Ajoute a la file d'attente en boucle."})
 
 
+@app.route("/stream/enqueue", methods=["POST"])
+@login_required
+def enqueue_stream():
+    payload = request.get_json(silent=True) or {}
+    source_url = (payload.get("url") or "").strip()
+    loop_mode = bool(payload.get("loop_mode"))
+    karaoke_mode = bool(payload.get("karaoke_mode"))
+    if not source_url:
+        return jsonify({"status": "error", "message": "URL de streaming manquante."}), 400
+
+    try:
+        track = build_streaming_track_payload(
+            User.get(current_user.id),
+            source_url,
+            loop_mode=loop_mode,
+            karaoke_mode=karaoke_mode,
+        )
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+    except PermissionError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 403
+    except RuntimeError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 502
+
+    ok, message = jukebox.enqueue(track)
+    if not ok:
+        return jsonify({"status": "error", "message": message}), 409
+    return jsonify(
+        {
+            "status": "ok",
+            "message": "Stream ajoute a la file d'attente." if not loop_mode else "Stream ajoute a la file d'attente en boucle.",
+        }
+    )
+
+
+@app.route("/stream/search_enqueue", methods=["POST"])
+@login_required
+def search_enqueue_stream():
+    payload = request.get_json(silent=True) or {}
+    query = (payload.get("query") or "").strip()
+    loop_mode = bool(payload.get("loop_mode"))
+    karaoke_mode = bool(payload.get("karaoke_mode"))
+    if not query:
+        return jsonify({"status": "error", "message": "Recherche vide."}), 400
+
+    try:
+        track = build_search_track_payload(
+            User.get(current_user.id),
+            query,
+            loop_mode=loop_mode,
+            karaoke_mode=karaoke_mode,
+        )
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+    except PermissionError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 403
+    except RuntimeError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 502
+
+    ok, message = jukebox.enqueue(track)
+    if not ok:
+        return jsonify({"status": "error", "message": message}), 409
+    return jsonify(
+        {
+            "status": "ok",
+            "message": f"Recherche ajoutee: {track['nom']}",
+            "track": {"title": track["nom"], "author": track.get("author")},
+        }
+    )
+
+
 @app.route("/play_next", methods=["POST"])
 @login_required
 def play_next():
@@ -2799,10 +3541,33 @@ def stop_playback():
     return jsonify({"status": "ok", "message": "Lecture arretee."})
 
 
+@app.route("/pause_playback", methods=["POST"])
+@login_required
+def pause_playback():
+    viewer = User.get(current_user.id)
+    if not user_can_pause(viewer):
+        return jsonify({"status": "error", "message": "Pause indisponible pour votre compte."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    paused = bool(payload.get("paused", True))
+    ok, message = jukebox.set_paused(paused)
+    if not ok:
+        return jsonify({"status": "error", "message": message}), 409
+    return jsonify(
+        {
+            "status": "ok",
+            "message": "Lecture mise en pause." if paused else "Lecture reprise.",
+            "is_paused": jukebox.is_paused(),
+        }
+    )
+
+
 @app.route("/set_volume", methods=["POST"])
 @login_required
 def set_volume():
-    require_admin()
+    viewer = User.get(current_user.id)
+    if not user_can_set_volume(viewer):
+        return jsonify({"status": "error", "message": "Controle du volume indisponible pour votre compte."}), 403
     payload = request.get_json(silent=True) or {}
     if "volume" not in payload:
         return jsonify({"status": "error", "message": "Volume manquant."}), 400

@@ -176,6 +176,102 @@
             color: var(--muted);
             font-size: clamp(1rem, 1.3vw, 1.2rem);
         }
+        .karaoke {
+            display: none;
+            padding: 18px 22px;
+            border-radius: 24px;
+            background: rgba(0,243,255,0.07);
+            border: 1px solid rgba(0,243,255,0.18);
+            box-shadow: inset 0 0 18px rgba(0,243,255,0.06);
+        }
+        .karaoke.open {
+            display: grid;
+            gap: 10px;
+        }
+        .karaoke-label {
+            color: var(--muted);
+            font-size: 0.9rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        .karaoke-line {
+            min-height: 2.4em;
+            font-size: clamp(1.55rem, 3vw, 3rem);
+            line-height: 1.15;
+            color: #f7fdff;
+            text-shadow: 0 0 16px rgba(0,243,255,0.38);
+        }
+        .paused-pill {
+            display: none;
+            width: fit-content;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.09);
+            border: 1px solid rgba(255,255,255,0.16);
+            color: #f7fdff;
+            font-weight: 800;
+        }
+        .paused-pill.open {
+            display: inline-flex;
+        }
+        .karaoke-stage {
+            min-height: 100vh;
+            display: none;
+            place-items: center;
+            padding: 138px 48px 56px;
+            position: relative;
+            z-index: 1;
+            text-align: center;
+        }
+        .karaoke-stage.open {
+            display: grid;
+        }
+        .karaoke-stage-card {
+            width: min(1200px, 100%);
+            display: grid;
+            gap: 26px;
+        }
+        .karaoke-stage-label {
+            color: var(--muted);
+            font-size: clamp(1rem, 1.4vw, 1.3rem);
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+        }
+        .karaoke-stage-line {
+            min-height: 3.2em;
+            display: grid;
+            place-items: center;
+            padding: 28px 34px;
+            border-radius: 36px;
+            background: rgba(8, 16, 28, 0.7);
+            border: 1px solid rgba(0,243,255,0.24);
+            box-shadow: 0 0 30px rgba(0,243,255,0.16), inset 0 0 28px rgba(0,243,255,0.08);
+            font-size: clamp(3rem, 7.4vw, 7.6rem);
+            line-height: 1.06;
+            font-weight: 900;
+            color: #f7fdff;
+            text-shadow: 0 0 24px rgba(0,243,255,0.55);
+        }
+        .karaoke-stage-next {
+            min-height: 1.5em;
+            color: #b8c8d6;
+            font-size: clamp(1.35rem, 2.5vw, 2.4rem);
+            line-height: 1.18;
+            opacity: 0.78;
+        }
+        body.karaoke-mode .connection-label {
+            letter-spacing: 0.18em;
+        }
+        body.karaoke-mode .connection-value {
+            font-size: clamp(1.5rem, 3.5vw, 3.2rem);
+            letter-spacing: 0;
+        }
+        body.karaoke-mode #playing-view {
+            display: none !important;
+        }
+        body.karaoke-mode .footer-note {
+            display: none;
+        }
         .idle {
             min-height: 100vh;
             display: none;
@@ -228,6 +324,13 @@
                 top: 12px;
                 padding: 16px 18px;
             }
+            .karaoke-stage {
+                padding: 132px 18px 76px;
+            }
+            .karaoke-stage-line {
+                padding: 22px;
+                font-size: clamp(2.4rem, 12vw, 5rem);
+            }
             .idle {
                 padding: 136px 20px 20px;
             }
@@ -237,10 +340,9 @@
 <body>
     <canvas id="visualizer" aria-hidden="true"></canvas>
     <div class="connection-banner">
-        <div class="connection-label">Adresse de connexion</div>
-        <div class="connection-value">{{ server_host }}{% if server_port != 80 %}:{{ server_port }}{% endif %}</div>
+        <div id="connection-label" class="connection-label">Adresse de connexion</div>
+        <div id="connection-value" class="connection-value">{{ server_host }}{% if server_port != 80 %}:{{ server_port }}{% endif %}</div>
     </div>
-
     <main id="playing-view" class="wall">
         <section class="art-panel">
             <img id="cover" alt="Pochette en cours">
@@ -250,6 +352,7 @@
             <div class="eyebrow">Now Playing</div>
             <h1 id="title">Nixify</h1>
             <div id="author" class="author">En attente d'un morceau</div>
+            <div id="paused-pill" class="paused-pill">Pause</div>
 
             <div class="added-by">
                 <span class="badge">+</span>
@@ -263,6 +366,10 @@
                     <span id="remaining">--:-- restant</span>
                 </div>
             </div>
+            <div id="karaoke" class="karaoke">
+                <div class="karaoke-label">Karaoke</div>
+                <div id="karaoke-line" class="karaoke-line"></div>
+            </div>
         </section>
     </main>
 
@@ -273,15 +380,27 @@
         </div>
     </section>
 
+    <section id="karaoke-stage" class="karaoke-stage">
+        <div class="karaoke-stage-card">
+            <div class="karaoke-stage-label">Paroles</div>
+            <div id="karaoke-stage-line" class="karaoke-stage-line">...</div>
+            <div id="karaoke-stage-next" class="karaoke-stage-next"></div>
+        </div>
+    </section>
+
     <footer class="footer-note">{{ footer_credit }}</footer>
 
     <script>
+        const defaultConnectionLabel = 'Adresse de connexion';
+        const defaultConnectionValue = "{{ server_host }}{% if server_port != 80 %}:{{ server_port }}{% endif %}";
         const placeholderCover = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200'><rect width='100%25' height='100%25' rx='40' fill='%2308121f'/><text x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%2300f3ff' font-size='120' font-family='Arial'>Nixify</text></svg>";
         const visualizer = document.getElementById('visualizer');
         const visualizerContext = visualizer.getContext('2d');
+        const karaokeLeadSeconds = 0.9;
         let visualizerPlaying = false;
         let visualizerTrackKey = '';
         let visualizerSeed = 1;
+        let currentTrackKey = '';
 
         function formatDuration(totalSeconds) {
             if (totalSeconds === null || totalSeconds === undefined || Number.isNaN(totalSeconds)) {
@@ -339,6 +458,39 @@
                 visualizerTrackKey = nextKey;
                 visualizerSeed = hashString(nextKey);
             }
+        }
+
+        function activeSubtitleLine(subtitles, elapsed) {
+            if (!Array.isArray(subtitles) || Number.isNaN(elapsed)) {
+                return '';
+            }
+            const active = subtitles.find((cue) => elapsed >= Number(cue.start) && elapsed <= Number(cue.end));
+            return active ? active.text : '';
+        }
+
+        function nextSubtitleLine(subtitles, elapsed) {
+            if (!Array.isArray(subtitles) || Number.isNaN(elapsed)) {
+                return '';
+            }
+            const next = subtitles.find((cue) => Number(cue.start) > elapsed + 0.15);
+            return next ? next.text : '';
+        }
+
+        function setKaraokeDisplay(enabled) {
+            document.body.classList.toggle('karaoke-mode', Boolean(enabled));
+            document.getElementById('karaoke-stage').classList.toggle('open', Boolean(enabled));
+        }
+
+        function updateConnectionBanner(data, karaokeActive) {
+            const label = document.getElementById('connection-label');
+            const value = document.getElementById('connection-value');
+            if (karaokeActive && data && data.status === 'playing') {
+                label.textContent = data.title || 'Titre inconnu';
+                value.textContent = `Ajoute par : ${data.requested_by || data.owner || 'inconnu'}`;
+                return;
+            }
+            label.textContent = defaultConnectionLabel;
+            value.textContent = defaultConnectionValue;
         }
 
         function renderVisualizer(timestamp) {
@@ -418,12 +570,18 @@
 
             if (data.status !== 'playing') {
                 visualizerPlaying = false;
+                currentTrackKey = '';
+                setKaraokeDisplay(false);
+                updateConnectionBanner(null, false);
                 playingView.style.display = 'none';
                 idleView.style.display = 'grid';
                 return;
             }
 
-            visualizerPlaying = true;
+            const nextTrackKey = `${data.title || ''}::${data.author || ''}::${data.requested_by || ''}`;
+            currentTrackKey = nextTrackKey;
+
+            visualizerPlaying = !data.is_paused;
             setVisualizerTrack(data);
             playingView.style.display = 'grid';
             idleView.style.display = 'none';
@@ -432,6 +590,7 @@
             document.getElementById('title').textContent = data.title || 'Titre inconnu';
             document.getElementById('author').textContent = data.author || 'Auteur inconnu';
             document.getElementById('requested-by').textContent = `Ajoute par : ${data.requested_by || data.owner || 'inconnu'}`;
+            document.getElementById('paused-pill').classList.toggle('open', Boolean(data.is_paused));
 
             const elapsed = Number(data.elapsed_seconds);
             const duration = Number(data.duration_seconds);
@@ -446,6 +605,20 @@
                 ? Math.max(0, Math.min(100, (elapsed / duration) * 100))
                 : 0;
             document.getElementById('progress-bar').style.width = `${progressPercent}%`;
+
+            const subtitleElapsed = Number.isNaN(elapsed) ? elapsed : elapsed + karaokeLeadSeconds;
+            const subtitleText = activeSubtitleLine(data.subtitles, subtitleElapsed);
+            const upcomingSubtitleText = nextSubtitleLine(data.subtitles, subtitleElapsed);
+            const hasKaraoke = Boolean(data.subtitles_enabled && Array.isArray(data.subtitles) && data.subtitles.length);
+            const karaokeActive = Boolean(data.karaoke_mode && hasKaraoke);
+            setKaraokeDisplay(karaokeActive);
+            updateConnectionBanner(data, karaokeActive);
+
+            const karaoke = document.getElementById('karaoke');
+            document.getElementById('karaoke-line').textContent = subtitleText;
+            karaoke.classList.toggle('open', Boolean(hasKaraoke && subtitleText && !karaokeActive));
+            document.getElementById('karaoke-stage-line').textContent = subtitleText || '...';
+            document.getElementById('karaoke-stage-next').textContent = upcomingSubtitleText;
         }
 
         resizeVisualizer();
